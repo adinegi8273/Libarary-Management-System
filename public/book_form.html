@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Book Form - Library</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; background: #f5f6f8; margin: 0; padding: 32px 16px; color: #1f1f1f; }
+  .card { max-width: 480px; margin: 0 auto; background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 28px; }
+  h1 { text-align: center; font-size: 22px; margin-top: 0; }
+  label { display: block; font-size: 13px; color: #555; margin: 14px 0 6px; }
+  input, select { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #ddd; font-size: 14px; }
+  .row { display: flex; gap: 12px; margin-top: 24px; }
+  button { flex: 1; padding: 10px; border-radius: 8px; border: none; font-weight: 500; cursor: pointer; font-size: 14px; }
+  button.primary { background: #2563eb; color: #fff; }
+  button.secondary { background: #fff; color: #333; border: 1px solid #ddd; }
+  .error-msg { color: #dc2626; font-size: 13px; margin-top: 12px; white-space: pre-line; }
+  .success-msg { color: #16a34a; font-size: 13px; margin-top: 12px; }
+  .hint { font-size: 12px; color: #888; margin-top: 4px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1 id="formTitle">Add New Book</h1>
+    <form id="bookForm">
+      <label for="title">Title *</label>
+      <input type="text" id="title" required>
+
+      <label for="author_id">Author</label>
+      <select id="author_id"><option value="">— none —</option></select>
+
+      <label for="isbn">ISBN</label>
+      <input type="text" id="isbn">
+
+      <label for="genre">Genre</label>
+      <input type="text" id="genre">
+
+      <label for="total_copies">Total copies *</label>
+      <input type="number" id="total_copies" min="0" value="1" required>
+      <div class="hint" id="copiesHint"></div>
+
+      <div class="row">
+        <button type="button" class="secondary" onclick="window.location.href='books.html'">Cancel</button>
+        <button type="submit" class="primary" id="submitBtn">Save Book</button>
+      </div>
+      <div id="msg"></div>
+    </form>
+  </div>
+
+  <script>
+    const API_BASE = "http://localhost:3000";
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("id");
+    const form = document.getElementById("bookForm");
+    const msg = document.getElementById("msg");
+
+    async function loadAuthors() {
+      const select = document.getElementById("author_id");
+      try {
+        const res = await fetch(`${API_BASE}/authors?limit=100`);
+        const result = await res.json();
+        (result.data || []).forEach(a => {
+          const opt = document.createElement("option");
+          opt.value = a.id;
+          opt.textContent = a.name;
+          select.appendChild(opt);
+        });
+      } catch (err) {
+        console.error("Could not load authors", err);
+      }
+    }
+
+    async function loadBook() {
+      document.getElementById("formTitle").textContent = "Edit Book";
+      document.getElementById("submitBtn").textContent = "Update Book";
+      try {
+        const res = await fetch(`${API_BASE}/books/${id}`);
+        if (!res.ok) throw new Error(`Server responded with status ${res.status}`);
+        const { data: b } = await res.json();
+        document.getElementById("title").value = b.title;
+        document.getElementById("isbn").value = b.isbn || "";
+        document.getElementById("genre").value = b.genre || "";
+        document.getElementById("total_copies").value = b.total_copies;
+        if (b.author_id) document.getElementById("author_id").value = b.author_id;
+
+        const issued = b.total_copies - b.available_copies;
+        if (issued > 0) {
+          document.getElementById("copiesHint").textContent = `${issued} cop${issued === 1 ? "y" : "ies"} currently issued — total can't go below that.`;
+        }
+      } catch (err) {
+        msg.className = "error-msg";
+        msg.textContent = "Could not load book: " + err.message;
+      }
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      msg.className = "";
+      msg.textContent = "";
+
+      const payload = {
+        title: document.getElementById("title").value,
+        author_id: document.getElementById("author_id").value || null,
+        isbn: document.getElementById("isbn").value,
+        genre: document.getElementById("genre").value,
+        total_copies: parseInt(document.getElementById("total_copies").value)
+      };
+
+      try {
+        const url = id ? `${API_BASE}/books/${id}` : `${API_BASE}/books`;
+        const method = id ? "PUT" : "POST";
+        const res = await fetch(url, {
+          method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+        });
+        const body = await res.json();
+        if (!res.ok) {
+          const details = body.details ? body.details.join("\n") : body.error;
+          throw new Error(details || `Server responded with status ${res.status}`);
+        }
+        msg.className = "success-msg";
+        msg.textContent = "Book saved! Redirecting...";
+        setTimeout(() => window.location.href = "books.html", 700);
+      } catch (err) {
+        msg.className = "error-msg";
+        msg.textContent = err.message;
+      }
+    });
+
+    window.addEventListener("DOMContentLoaded", async () => {
+      await loadAuthors();
+      if (id) await loadBook();
+    });
+  </script>
+</body>
+</html>

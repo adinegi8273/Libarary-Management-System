@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Author Form - Library</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; background: #f5f6f8; margin: 0; padding: 32px 16px; color: #1f1f1f; }
+  .card { max-width: 480px; margin: 0 auto; background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 28px; }
+  h1 { text-align: center; font-size: 22px; margin-top: 0; }
+  label { display: block; font-size: 13px; color: #555; margin: 14px 0 6px; }
+  input, textarea { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #ddd; font-size: 14px; font-family: inherit; }
+  .row { display: flex; gap: 12px; margin-top: 24px; }
+  button { flex: 1; padding: 10px; border-radius: 8px; border: none; font-weight: 500; cursor: pointer; font-size: 14px; }
+  button.primary { background: #2563eb; color: #fff; }
+  button.secondary { background: #fff; color: #333; border: 1px solid #ddd; }
+  .error-msg { color: #dc2626; font-size: 13px; margin-top: 12px; white-space: pre-line; }
+  .success-msg { color: #16a34a; font-size: 13px; margin-top: 12px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1 id="formTitle">Add New Author</h1>
+    <form id="authorForm">
+      <label for="name">Name *</label>
+      <input type="text" id="name" required>
+      <label for="nationality">Nationality</label>
+      <input type="text" id="nationality">
+      <label for="bio">Bio</label>
+      <textarea id="bio" rows="3"></textarea>
+      <div class="row">
+        <button type="button" class="secondary" onclick="window.location.href='authors.html'">Cancel</button>
+        <button type="submit" class="primary" id="submitBtn">Save Author</button>
+      </div>
+      <div id="msg"></div>
+    </form>
+  </div>
+  <script>
+    const API_BASE = "http://localhost:3000";
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("id");
+    const form = document.getElementById("authorForm");
+    const msg = document.getElementById("msg");
+
+    async function loadAuthor() {
+      document.getElementById("formTitle").textContent = "Edit Author";
+      document.getElementById("submitBtn").textContent = "Update Author";
+      try {
+        const res = await fetch(`${API_BASE}/authors/${id}`);
+        if (!res.ok) throw new Error(`Server responded with status ${res.status}`);
+        const { data: a } = await res.json();
+        document.getElementById("name").value = a.name;
+        document.getElementById("nationality").value = a.nationality || "";
+        document.getElementById("bio").value = a.bio || "";
+      } catch (err) {
+        msg.className = "error-msg"; msg.textContent = "Could not load author: " + err.message;
+      }
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      msg.className = ""; msg.textContent = "";
+      const payload = {
+        name: document.getElementById("name").value,
+        nationality: document.getElementById("nationality").value,
+        bio: document.getElementById("bio").value
+      };
+      try {
+        const url = id ? `${API_BASE}/authors/${id}` : `${API_BASE}/authors`;
+        const method = id ? "PUT" : "POST";
+        const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const body = await res.json();
+        if (!res.ok) {
+          const details = body.details ? body.details.join("\n") : body.error;
+          throw new Error(details || `Server responded with status ${res.status}`);
+        }
+        msg.className = "success-msg"; msg.textContent = "Author saved! Redirecting...";
+        setTimeout(() => window.location.href = "authors.html", 700);
+      } catch (err) {
+        msg.className = "error-msg"; msg.textContent = err.message;
+      }
+    });
+
+    window.addEventListener("DOMContentLoaded", () => { if (id) loadAuthor(); });
+  </script>
+</body>
+</html>

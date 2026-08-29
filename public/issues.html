@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Issue / Return - Library</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; background: #f5f6f8; margin: 0; padding: 0 16px 80px; color: #1f1f1f; }
+  nav { max-width: 1000px; margin: 0 auto; display: flex; gap: 6px; flex-wrap: wrap; padding: 20px 0 8px; justify-content: center; }
+  nav a { text-decoration: none; color: #444; font-size: 14px; padding: 8px 14px; border-radius: 8px; background: #fff; border: 1px solid #e5e5e5; }
+  nav a.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+  h1 { text-align: center; margin-bottom: 4px; }
+  p.subtitle { text-align: center; color: #6b6b6b; margin-top: 0; }
+
+  .issue-card { max-width: 700px; margin: 24px auto; background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 24px; }
+  .issue-card h2 { margin-top: 0; font-size: 16px; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  label { display: block; font-size: 13px; color: #555; margin: 10px 0 6px; }
+  input, select { width: 100%; padding: 9px 12px; border-radius: 8px; border: 1px solid #ddd; font-size: 14px; }
+  button { cursor: pointer; border: none; background: #2563eb; color: #fff; font-weight: 500; padding: 10px 16px; border-radius: 8px; font-size: 14px; }
+  button.secondary { background: #fff; color: #333; border: 1px solid #ddd; }
+  button:hover { opacity: 0.9; }
+  .issue-msg { font-size: 13px; margin-top: 10px; white-space: pre-line; }
+  .issue-msg.error { color: #dc2626; }
+  .issue-msg.success { color: #16a34a; }
+
+  .toolbar { max-width: 1000px; margin: 24px auto 16px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .toolbar button { background: #fff; color: #333; border: 1px solid #ddd; }
+  .toolbar button.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+
+  .table-wrapper { max-width: 1000px; margin: 0 auto; background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  thead tr { background: #fafafa; }
+  th { text-align: left; padding: 12px 16px; font-weight: 500; color: #6b6b6b; font-size: 12px; }
+  td { padding: 12px 16px; border-top: 1px solid #eee; font-size: 14px; word-break: break-word; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+  .badge.issued { background: #dbeafe; color: #1d4ed8; }
+  .badge.overdue { background: #fee2e2; color: #991b1b; }
+  .badge.returned { background: #dcfce7; color: #166534; }
+  .actions button { padding: 6px 10px; font-size: 12px; }
+
+  .empty, .error-msg { max-width: 1000px; margin: 24px auto; text-align: center; color: #888; }
+  .error-msg { color: #dc2626; }
+  .pagination { max-width: 1000px; margin: 16px auto; display: flex; justify-content: center; align-items: center; gap: 12px; color: #444; font-size: 14px; }
+</style>
+</head>
+<body>
+  <nav>
+    <a href="index.html">Dashboard</a>
+    <a href="books.html">Books</a>
+    <a href="authors.html">Authors</a>
+    <a href="members.html">Members</a>
+    <a href="issues.html" class="active">Issue / Return</a>
+    <a href="reports.html">Reports</a>
+  </nav>
+  <h1>Issue / Return Books</h1>
+  <p class="subtitle">Lend a book to a member and track what's outstanding</p>
+
+  <div class="issue-card">
+    <h2>Issue a book</h2>
+    <form id="issueForm">
+      <div class="form-grid">
+        <div>
+          <label for="book_id">Book *</label>
+          <select id="book_id" required><option value="">Select a book</option></select>
+        </div>
+        <div>
+          <label for="member_id">Member *</label>
+          <select id="member_id" required><option value="">Select a member</option></select>
+        </div>
+      </div>
+      <label for="loan_days">Loan period (days)</label>
+      <input type="number" id="loan_days" min="1" value="14">
+      <div style="margin-top:16px;"><button type="submit">Issue Book</button></div>
+      <div id="issueMsg" class="issue-msg"></div>
+    </form>
+  </div>
+
+  <div class="toolbar" id="statusFilter">
+    <button data-status="" class="active">All</button>
+    <button data-status="issued">Issued</button>
+    <button data-status="overdue">Overdue</button>
+    <button data-status="returned">Returned</button>
+  </div>
+
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr><th>Book</th><th>Member</th><th>Issue date</th><th>Due date</th><th>Status</th><th style="width:110px;">Action</th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div class="empty" id="emptyMsg" style="display:none;">No records found.</div>
+  <div class="error-msg" id="errorMsg" style="display:none;"></div>
+  <div class="pagination" id="pagination"></div>
+
+  <script>
+    const API_BASE = "http://localhost:3000";
+    const urlParams = new URLSearchParams(window.location.search);
+    let state = { page: 1, limit: 10, status: "", member_id: urlParams.get("member_id") || "", book_id: urlParams.get("book_id") || "" };
+
+    function escapeHtml(s){ return s==null?"":String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;"); }
+
+    async function loadDropdowns() {
+      const bookSelect = document.getElementById("book_id");
+      const memberSelect = document.getElementById("member_id");
+      try {
+        const [booksRes, membersRes] = await Promise.all([
+          fetch(`${API_BASE}/books?limit=200&available=true`),
+          fetch(`${API_BASE}/members?limit=200`)
+        ]);
+        const books = (await booksRes.json()).data || [];
+        const members = (await membersRes.json()).data || [];
+        books.forEach(b => {
+          const opt = document.createElement("option");
+          opt.value = b.id;
+          opt.textContent = `${b.title} (${b.available_copies} available)`;
+          bookSelect.appendChild(opt);
+        });
+        members.forEach(m => {
+          const opt = document.createElement("option");
+          opt.value = m.id;
+          opt.textContent = `${m.name} (${m.email})`;
+          memberSelect.appendChild(opt);
+        });
+      } catch (err) {
+        console.error("Could not load dropdowns", err);
+      }
+    }
+
+    document.getElementById("issueForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = document.getElementById("issueMsg");
+      msg.className = "issue-msg"; msg.textContent = "";
+      const payload = {
+        book_id: document.getElementById("book_id").value,
+        member_id: document.getElementById("member_id").value,
+        loan_days: document.getElementById("loan_days").value
+      };
+      try {
+        const res = await fetch(`${API_BASE}/issues`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+        });
+        const body = await res.json();
+        if (!res.ok) {
+          const details = body.details ? body.details.join("\n") : body.error;
+          throw new Error(details || `Server responded with status ${res.status}`);
+        }
+        msg.className = "issue-msg success";
+        msg.textContent = body.message;
+        e.target.reset();
+        document.getElementById("loan_days").value = 14;
+        loadDropdowns();
+        loadIssues();
+      } catch (err) {
+        msg.className = "issue-msg error";
+        msg.textContent = err.message;
+      }
+    });
+
+    async function loadIssues() {
+      const params = new URLSearchParams({ page: state.page, limit: state.limit });
+      if (state.status) params.set("status", state.status);
+      if (state.member_id) params.set("member_id", state.member_id);
+      if (state.book_id) params.set("book_id", state.book_id);
+
+      const errorMsg = document.getElementById("errorMsg"), emptyMsg = document.getElementById("emptyMsg"), tbody = document.getElementById("rows");
+      errorMsg.style.display = "none"; emptyMsg.style.display = "none"; tbody.innerHTML = "";
+
+      try {
+        const res = await fetch(`${API_BASE}/issues?${params.toString()}`);
+        if (!res.ok) throw new Error(`Server responded with status ${res.status}`);
+        const result = await res.json();
+        if (!result.data.length) { emptyMsg.style.display = "block"; }
+        else {
+          result.data.forEach(rec => {
+            const isOverdue = rec.status === "issued" && parseInt(rec.days_overdue) > 0;
+            const badgeClass = rec.status === "returned" ? "returned" : (isOverdue ? "overdue" : "issued");
+            const badgeText = rec.status === "returned" ? "Returned" : (isOverdue ? `Overdue (${rec.days_overdue}d)` : "Issued");
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+              <td>${escapeHtml(rec.book_title)}</td>
+              <td>${escapeHtml(rec.member_name)}</td>
+              <td>${rec.issue_date ? rec.issue_date.slice(0,10) : "-"}</td>
+              <td>${rec.due_date ? rec.due_date.slice(0,10) : "-"}</td>
+              <td><span class="badge ${badgeClass}">${badgeText}</span></td>
+              <td class="actions">${rec.status === "issued" ? `<button class="secondary" onclick="returnBook(${rec.id})">Return</button>` : "-"}</td>
+            `;
+            tbody.appendChild(tr);
+          });
+        }
+        renderPagination(result.pagination);
+      } catch (err) {
+        errorMsg.textContent = "Could not load records: " + err.message;
+        errorMsg.style.display = "block";
+      }
+    }
+
+    function renderPagination(p) {
+      const el = document.getElementById("pagination");
+      if (!p) { el.innerHTML = ""; return; }
+      el.innerHTML = `
+        <button class="secondary" ${p.page <= 1 ? "disabled" : ""} onclick="changePage(${p.page - 1})">Prev</button>
+        <span>Page ${p.page} of ${p.totalPages} (${p.total} records)</span>
+        <button class="secondary" ${p.page >= p.totalPages ? "disabled" : ""} onclick="changePage(${p.page + 1})">Next</button>`;
+    }
+    function changePage(page) { state.page = page; loadIssues(); }
+
+    async function returnBook(issueId) {
+      if (!confirm("Mark this book as returned?")) return;
+      try {
+        const res = await fetch(`${API_BASE}/issues/${issueId}/return`, { method: "PUT" });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || `Server responded with status ${res.status}`);
+        alert(body.message);
+        loadDropdowns();
+        loadIssues();
+      } catch (err) {
+        alert("Failed to return book: " + err.message);
+      }
+    }
+
+    document.getElementById("statusFilter").addEventListener("click", (e) => {
+      if (e.target.tagName !== "BUTTON") return;
+      document.querySelectorAll("#statusFilter button").forEach(b => b.classList.remove("active"));
+      e.target.classList.add("active");
+      state.status = e.target.dataset.status;
+      state.page = 1;
+      loadIssues();
+    });
+
+    window.addEventListener("DOMContentLoaded", () => { loadDropdowns(); loadIssues(); });
+  </script>
+</body>
+</html>

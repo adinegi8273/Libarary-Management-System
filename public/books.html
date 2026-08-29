@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Books - Library</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; background: #f5f6f8; margin: 0; padding: 0 16px 80px; color: #1f1f1f; }
+  nav { max-width: 1000px; margin: 0 auto; display: flex; gap: 6px; flex-wrap: wrap; padding: 20px 0 8px; justify-content: center; }
+  nav a { text-decoration: none; color: #444; font-size: 14px; padding: 8px 14px; border-radius: 8px; background: #fff; border: 1px solid #e5e5e5; }
+  nav a.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+  h1 { text-align: center; margin-bottom: 4px; }
+  p.subtitle { text-align: center; color: #6b6b6b; margin-top: 0; }
+
+  .toolbar { max-width: 1000px; margin: 24px auto 16px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+  .toolbar .left, .toolbar .right { display: flex; gap: 8px; flex-wrap: wrap; }
+  input, select, button { font-size: 14px; padding: 8px 12px; border-radius: 8px; border: 1px solid #ddd; background: #fff; }
+  button { cursor: pointer; border: none; background: #2563eb; color: #fff; font-weight: 500; }
+  button.secondary { background: #fff; color: #333; border: 1px solid #ddd; }
+  button.danger { background: #dc2626; }
+  button:hover { opacity: 0.9; }
+
+  .table-wrapper { max-width: 1000px; margin: 0 auto; background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  thead tr { background: #fafafa; }
+  th { text-align: left; padding: 12px 16px; font-weight: 500; color: #6b6b6b; font-size: 12px; }
+  td { padding: 12px 16px; border-top: 1px solid #eee; font-size: 14px; word-break: break-word; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+  .badge.avail { background: #dcfce7; color: #166534; }
+  .badge.none { background: #fee2e2; color: #991b1b; }
+  .actions { display: flex; gap: 6px; }
+  .actions button { padding: 6px 10px; font-size: 12px; }
+
+  .pagination { max-width: 1000px; margin: 16px auto; display: flex; justify-content: center; align-items: center; gap: 12px; color: #444; font-size: 14px; }
+  .empty, .error-msg { max-width: 1000px; margin: 24px auto; text-align: center; color: #888; }
+  .error-msg { color: #dc2626; }
+</style>
+</head>
+<body>
+  <nav>
+    <a href="index.html">Dashboard</a>
+    <a href="books.html" class="active">Books</a>
+    <a href="authors.html">Authors</a>
+    <a href="members.html">Members</a>
+    <a href="issues.html">Issue / Return</a>
+    <a href="reports.html">Reports</a>
+  </nav>
+
+  <h1>Books</h1>
+  <p class="subtitle">Search, filter, and manage the catalog</p>
+
+  <div class="toolbar">
+    <div class="left">
+      <input type="text" id="searchInput" placeholder="Search by title, author or ISBN" />
+      <input type="text" id="genreInput" placeholder="Genre" style="width:120px;" />
+      <select id="availableFilter">
+        <option value="">All</option>
+        <option value="true">Available only</option>
+        <option value="false">Unavailable only</option>
+      </select>
+      <select id="sortBy">
+        <option value="title">Sort: Title</option>
+        <option value="genre">Sort: Genre</option>
+        <option value="available_copies">Sort: Available copies</option>
+      </select>
+      <select id="order">
+        <option value="ASC">Ascending</option>
+        <option value="DESC">Descending</option>
+      </select>
+    </div>
+    <div class="right">
+      <button class="secondary" id="refreshBtn">Refresh</button>
+      <button id="addBtn">+ Add Book</button>
+    </div>
+  </div>
+
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Author</th>
+          <th>Genre</th>
+          <th>Availability</th>
+          <th style="width:170px;">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <div class="empty" id="emptyMsg" style="display:none;">No books found.</div>
+  <div class="error-msg" id="errorMsg" style="display:none;"></div>
+  <div class="pagination" id="pagination"></div>
+
+  <script>
+    const API_BASE = "http://localhost:3000";
+    let state = { page: 1, limit: 10, sortBy: "title", order: "ASC", search: "", genre: "", available: "" };
+    let debounceTimer;
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return "";
+      return String(str).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+    }
+
+    async function loadBooks() {
+      const params = new URLSearchParams({
+        sortBy: state.sortBy, order: state.order, page: state.page, limit: state.limit,
+        search: state.search, genre: state.genre, available: state.available
+      });
+      const errorMsg = document.getElementById("errorMsg");
+      const emptyMsg = document.getElementById("emptyMsg");
+      const tbody = document.getElementById("rows");
+      errorMsg.style.display = "none";
+      emptyMsg.style.display = "none";
+      tbody.innerHTML = "";
+
+      try {
+        const res = await fetch(`${API_BASE}/books?${params.toString()}`);
+        if (!res.ok) throw new Error(`Server responded with status ${res.status}`);
+        const result = await res.json();
+        const books = result.data;
+
+        if (!books || books.length === 0) {
+          emptyMsg.style.display = "block";
+        } else {
+          books.forEach(b => {
+            const tr = document.createElement("tr");
+            const badge = b.available_copies > 0
+              ? `<span class="badge avail">${b.available_copies}/${b.total_copies} available</span>`
+              : `<span class="badge none">0/${b.total_copies} available</span>`;
+            tr.innerHTML = `
+              <td>${escapeHtml(b.title)}</td>
+              <td>${escapeHtml(b.author_name || "-")}</td>
+              <td>${escapeHtml(b.genre || "-")}</td>
+              <td>${badge}</td>
+              <td class="actions">
+                <button class="secondary" onclick="window.location.href='book_form.html?id=${b.id}'">Edit</button>
+                <button class="danger" onclick="deleteBook(${b.id})">Delete</button>
+              </td>
+            `;
+            tbody.appendChild(tr);
+          });
+        }
+        renderPagination(result.pagination);
+      } catch (err) {
+        errorMsg.textContent = "Could not load books: " + err.message;
+        errorMsg.style.display = "block";
+      }
+    }
+
+    function renderPagination(p) {
+      const el = document.getElementById("pagination");
+      if (!p) { el.innerHTML = ""; return; }
+      el.innerHTML = `
+        <button class="secondary" ${p.page <= 1 ? "disabled" : ""} onclick="changePage(${p.page - 1})">Prev</button>
+        <span>Page ${p.page} of ${p.totalPages} (${p.total} books)</span>
+        <button class="secondary" ${p.page >= p.totalPages ? "disabled" : ""} onclick="changePage(${p.page + 1})">Next</button>
+      `;
+    }
+    function changePage(page) { state.page = page; loadBooks(); }
+
+    async function deleteBook(id) {
+      if (!confirm("Delete this book? This cannot be undone.")) return;
+      try {
+        const res = await fetch(`${API_BASE}/books/${id}`, { method: "DELETE" });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || `Server responded with status ${res.status}`);
+        loadBooks();
+      } catch (err) {
+        alert("Failed to delete book: " + err.message);
+      }
+    }
+
+    document.getElementById("searchInput").addEventListener("input", (e) => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => { state.search = e.target.value; state.page = 1; loadBooks(); }, 300);
+    });
+    document.getElementById("genreInput").addEventListener("input", (e) => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => { state.genre = e.target.value; state.page = 1; loadBooks(); }, 300);
+    });
+    document.getElementById("availableFilter").addEventListener("change", (e) => { state.available = e.target.value; state.page = 1; loadBooks(); });
+    document.getElementById("sortBy").addEventListener("change", (e) => { state.sortBy = e.target.value; loadBooks(); });
+    document.getElementById("order").addEventListener("change", (e) => { state.order = e.target.value; loadBooks(); });
+    document.getElementById("refreshBtn").addEventListener("click", loadBooks);
+    document.getElementById("addBtn").addEventListener("click", () => window.location.href = "book_form.html");
+
+    window.addEventListener("DOMContentLoaded", loadBooks);
+  </script>
+</body>
+</html>
